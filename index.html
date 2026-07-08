@@ -1,0 +1,122 @@
+import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+void main() {
+  runApp(const IPTVApp());
+}
+
+class IPTVApp extends StatelessWidget {
+  const IPTVApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'IPTV Viewer',
+      theme: ThemeData.dark(),
+      home: const HomeScreen(),
+    );
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final TextEditingController _urlController = TextEditingController(
+    text: 'https://iptv-org.github.io/iptv/index.m3u', // Example public playlist
+  );
+  List<Map<String, String>> channels = [];
+  bool loading = false;
+  VideoPlayerController? _controller;
+
+  Future<void> loadPlaylist() async {
+    setState(() => loading = true);
+    try {
+      final response = await http.get(Uri.parse(_urlController.text));
+      if (response.statusCode == 200) {
+        final lines = response.body.split('\n');
+        channels.clear();
+        String? currentName;
+        for (var line in lines) {
+          if (line.startsWith('#EXTINF:')) {
+            currentName = line.split(',').last.trim();
+          } else if (line.startsWith('http') && currentName != null) {
+            channels.add({'name': currentName, 'url': line.trim()});
+            currentName = null;
+          }
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+    setState(() => loading = false);
+  }
+
+  void playChannel(String url) {
+    _controller?.dispose();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(url))
+      ..initialize().then((_) {
+        setState(() {});
+        _controller!.play();
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('IPTV Viewer')),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _urlController,
+                    decoration: const InputDecoration(hintText: 'Enter M3U URL'),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: loadPlaylist,
+                  child: const Text('Load'),
+                ),
+              ],
+            ),
+          ),
+          if (loading) const CircularProgressIndicator(),
+          Expanded(
+            child: ListView.builder(
+              itemCount: channels.length,
+              itemBuilder: (context, index) {
+                final ch = channels[index];
+                return ListTile(
+                  title: Text(ch['name']!),
+                  trailing: const Icon(Icons.play_arrow),
+                  onTap: () => playChannel(ch['url']!),
+                );
+              },
+            ),
+          ),
+          if (_controller != null && _controller!.value.isInitialized)
+            AspectRatio(
+              aspectRatio: _controller!.value.aspectRatio,
+              child: VideoPlayer(_controller!),
+            ),
+        ],
+      ),
+    );
+  }
+}
