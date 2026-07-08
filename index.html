@@ -1,122 +1,94 @@
-import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Strong IPTV Player</title>
+  <style>
+    body { font-family: Arial; background: #0f0f0f; color: #fff; margin: 0; padding: 10px; }
+    input, select, button { width: 100%; padding: 12px; margin: 8px 0; font-size: 16px; border-radius: 8px; }
+    button { background: #e91e63; border: none; color: white; font-weight: bold; }
+    ul { list-style: none; padding: 0; }
+    li { padding: 14px; background: #1f1f1f; margin: 6px 0; border-radius: 8px; }
+    video { width: 100%; background: black; margin-top: 10px; }
+    .good { color: #4caf50; }
+  </style>
+</head>
+<body>
+  <h2>💪 Strong IPTV Player</h2>
 
-void main() {
-  runApp(const IPTVApp());
-}
+  <select id="playlistSelect">
+    <option value="https://iptv-org.github.io/iptv/index.m3u">All Channels (Free)</option>
+    <option value="https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8">Free TV Playlist</option>
+    <option value="https://romaxa55.github.io/world_ip_tv/output/index.m3u">World IPTV (Updated Daily)</option>
+  </select>
 
-class IPTVApp extends StatelessWidget {
-  const IPTVApp({super.key});
+  <input type="text" id="customUrl" placeholder="Or paste your own M3U URL">
+  <button onclick="loadCustom()">Load Custom</button>
+  <button onclick="loadSelected()">Load Selected Playlist</button>
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'IPTV Viewer',
-      theme: ThemeData.dark(),
-      home: const HomeScreen(),
-    );
-  }
-}
+  <div id="status"></div>
+  <ul id="channelList"></ul>
+  <video id="player" controls autoplay></video>
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  <script>
+    let channels = [];
 
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
+    async function loadPlaylist(url) {
+      const status = document.getElementById('status');
+      const list = document.getElementById('channelList');
+      status.innerHTML = 'Loading channels... Please wait';
+      list.innerHTML = '';
 
-class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _urlController = TextEditingController(
-    text: 'https://iptv-org.github.io/iptv/index.m3u', // Example public playlist
-  );
-  List<Map<String, String>> channels = [];
-  bool loading = false;
-  VideoPlayerController? _controller;
+      try {
+        const response = await fetch(url);
+        const text = await response.text();
+        const lines = text.split('\n');
+        
+        channels = [];
+        let currentName = '';
 
-  Future<void> loadPlaylist() async {
-    setState(() => loading = true);
-    try {
-      final response = await http.get(Uri.parse(_urlController.text));
-      if (response.statusCode == 200) {
-        final lines = response.body.split('\n');
-        channels.clear();
-        String? currentName;
-        for (var line in lines) {
+        for (let line of lines) {
+          line = line.trim();
           if (line.startsWith('#EXTINF:')) {
-            currentName = line.split(',').last.trim();
-          } else if (line.startsWith('http') && currentName != null) {
-            channels.add({'name': currentName, 'url': line.trim()});
-            currentName = null;
+            currentName = line.split(',').pop().trim();
+          } else if (line.startsWith('http') && currentName) {
+            channels.push({name: currentName, url: line});
+            currentName = '';
           }
         }
+
+        channels.forEach(ch => {
+          const li = document.createElement('li');
+          li.textContent = ch.name;
+          li.onclick = () => play(ch.url);
+          list.appendChild(li);
+        });
+
+        status.innerHTML = `<span class="good">${channels.length} channels loaded</span>`;
+      } catch (e) {
+        status.textContent = 'Failed to load. Try another playlist.';
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
-    setState(() => loading = false);
-  }
 
-  void playChannel(String url) {
-    _controller?.dispose();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(url))
-      ..initialize().then((_) {
-        setState(() {});
-        _controller!.play();
-      });
-  }
+    function loadSelected() {
+      const url = document.getElementById('playlistSelect').value;
+      loadPlaylist(url);
+    }
 
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
+    function loadCustom() {
+      const url = document.getElementById('customUrl').value.trim();
+      if (url) loadPlaylist(url);
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('IPTV Viewer')),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _urlController,
-                    decoration: const InputDecoration(hintText: 'Enter M3U URL'),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: loadPlaylist,
-                  child: const Text('Load'),
-                ),
-              ],
-            ),
-          ),
-          if (loading) const CircularProgressIndicator(),
-          Expanded(
-            child: ListView.builder(
-              itemCount: channels.length,
-              itemBuilder: (context, index) {
-                final ch = channels[index];
-                return ListTile(
-                  title: Text(ch['name']!),
-                  trailing: const Icon(Icons.play_arrow),
-                  onTap: () => playChannel(ch['url']!),
-                );
-              },
-            ),
-          ),
-          if (_controller != null && _controller!.value.isInitialized)
-            AspectRatio(
-              aspectRatio: _controller!.value.aspectRatio,
-              child: VideoPlayer(_controller!),
-            ),
-        ],
-      ),
-    );
-  }
-}
+    function play(url) {
+      const player = document.getElementById('player');
+      player.src = url;
+      player.play().catch(() => alert("Buffering or link dead. Try another channel."));
+    }
+
+    // Load default on start
+    window.onload = loadSelected;
+  </script>
+</body>
+</html>
